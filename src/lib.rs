@@ -19,7 +19,9 @@ fn markdown_heading(raw: &str, level: u8) -> String {
 }
 
 fn is_heading_property(line: &str) -> bool {
-    line.trim_start().to_ascii_lowercase().starts_with(":heading:")
+    let line = line.trim_start().to_ascii_lowercase();
+    line.strip_prefix(":heading:")
+        .is_some_and(|value| value.is_empty() || value.chars().next().is_some_and(char::is_whitespace))
 }
 
 fn org_heading(raw: &str, level: u8) -> String {
@@ -98,5 +100,6 @@ mod tests {
         assert_eq!(org_heading("Title", 3), "Title\n\n:PROPERTIES:\n:heading: 3\n:END:");
         assert_eq!(org_heading("Title\n:PROPERTIES:\n:heading: 1\n:END:", 0), "Title");
         assert_eq!(org_heading("Title\n\n:PROPERTIES:\n:heading: 1\n:END:\n", 0), "Title\n\n");
+        assert_eq!(org_heading("Title\n:PROPERTIES:\n:heading:note: keep\n:heading: 1\n:END:", 0), "Title\n:PROPERTIES:\n:heading:note: keep\n:END:");
     }
 }
