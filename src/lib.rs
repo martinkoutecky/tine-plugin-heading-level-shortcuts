@@ -1,10 +1,7 @@
 use tine_plugin_sdk::{BlockFormat, Effect, Event};
 
 fn markdown_heading(raw: &str, level: u8) -> String {
-    let mut lines = raw.lines().map(str::to_string).collect::<Vec<_>>();
-    if lines.is_empty() {
-        lines.push(String::new());
-    }
+    let mut lines = raw.split('\n').map(str::to_string).collect::<Vec<_>>();
     let body = lines[0]
         .strip_prefix("###### ")
         .or_else(|| lines[0].strip_prefix("##### "))
@@ -26,7 +23,7 @@ fn is_heading_property(line: &str) -> bool {
 }
 
 fn org_heading(raw: &str, level: u8) -> String {
-    let mut lines = raw.lines().map(str::to_string).collect::<Vec<_>>();
+    let mut lines = raw.split('\n').map(str::to_string).collect::<Vec<_>>();
     let drawer_start = lines.iter().position(|line| line.trim().eq_ignore_ascii_case(":PROPERTIES:"));
     if let Some(start) = drawer_start {
         if let Some(relative_end) = lines[start + 1..].iter().position(|line| line.trim().eq_ignore_ascii_case(":END:")) {
@@ -39,7 +36,6 @@ fn org_heading(raw: &str, level: u8) -> String {
             }
             if properties.is_empty() {
                 lines.drain(start..=end);
-                while lines.last().is_some_and(|line| line.is_empty()) { lines.pop(); }
             } else {
                 lines.splice((start + 1)..end, properties);
             }
@@ -91,6 +87,7 @@ mod tests {
         assert_eq!(markdown_heading("## Title\nbody", 4), "#### Title\nbody");
         assert_eq!(markdown_heading("###### Title", 0), "Title");
         assert_eq!(markdown_heading("#not a heading", 2), "## #not a heading");
+        assert_eq!(markdown_heading("Title\n", 2), "## Title\n");
     }
 
     #[test]
@@ -100,5 +97,6 @@ mod tests {
         assert_eq!(org_heading(raw, 0), "Title\n:PROPERTIES:\n:id: abc\n:END:");
         assert_eq!(org_heading("Title", 3), "Title\n\n:PROPERTIES:\n:heading: 3\n:END:");
         assert_eq!(org_heading("Title\n:PROPERTIES:\n:heading: 1\n:END:", 0), "Title");
+        assert_eq!(org_heading("Title\n\n:PROPERTIES:\n:heading: 1\n:END:\n", 0), "Title\n\n");
     }
 }
