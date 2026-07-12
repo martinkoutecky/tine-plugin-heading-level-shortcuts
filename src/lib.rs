@@ -1,0 +1,104 @@
+use tine_plugin_sdk::{BlockFormat, Effect, Event};
+
+fn markdown_heading(raw: &str, level: u8) -> String {
+    let mut lines = raw.lines().map(str::to_string).collect::<Vec<_>>();
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    let body = lines[0]
+        .strip_prefix("###### ")
+        .or_else(|| lines[0].strip_prefix("##### "))
+        .or_else(|| lines[0].strip_prefix("#### "))
+        .or_else(|| lines[0].strip_prefix("### "))
+        .or_else(|| lines[0].strip_prefix("## "))
+        .or_else(|| lines[0].strip_prefix("# "))
+        .unwrap_or(&lines[0]);
+    lines[0] = if level == 0 {
+        body.to_string()
+    } else {
+        format!("{} {body}", "#".repeat(level as usize))
+    };
+    lines.join("\n")
+}
+
+fn is_heading_property(line: &str) -> bool {
+    line.trim_start().to_ascii_lowercase().starts_with(":heading:")
+}
+
+fn org_heading(raw: &str, level: u8) -> String {
+    let mut lines = raw.lines().map(str::to_string).collect::<Vec<_>>();
+    let drawer_start = lines.iter().position(|line| line.trim().eq_ignore_ascii_case(":PROPERTIES:"));
+    if let Some(start) = drawer_start {
+        if let Some(relative_end) = lines[start + 1..].iter().position(|line| line.trim().eq_ignore_ascii_case(":END:")) {
+            let end = start + 1 + relative_end;
+            let mut properties = lines[start + 1..end].iter()
+                .filter(|line| !is_heading_property(line))
+                .cloned().collect::<Vec<_>>();
+            if level > 0 {
+                properties.push(format!(":heading: {level}"));
+            }
+            if properties.is_empty() {
+                lines.drain(start..=end);
+                while lines.last().is_some_and(|line| line.is_empty()) { lines.pop(); }
+            } else {
+                lines.splice((start + 1)..end, properties);
+            }
+            return lines.join("\n");
+        }
+    }
+    if level > 0 {
+        if !lines.is_empty() && !lines.last().is_some_and(|line| line.is_empty()) {
+            lines.push(String::new());
+        }
+        lines.extend([":PROPERTIES:".to_string(), format!(":heading: {level}"), ":END:".to_string()]);
+    }
+    lines.join("\n")
+}
+
+fn set_level(raw: &str, level: u8, format: Option<BlockFormat>) -> String {
+    if format == Some(BlockFormat::Org) { org_heading(raw, level) } else { markdown_heading(raw, level) }
+}
+
+fn handle(event: &Event) -> Result<Vec<Effect>, String> {
+    if event.kind != "command" {
+        return Ok(Vec::new());
+    }
+    let contribution = event.contribution_id.as_deref().unwrap_or("");
+    let level = contribution.strip_prefix("heading-")
+        .and_then(|value| value.parse::<u8>().ok())
+        .filter(|value| *value <= 6)
+        .ok_or_else(|| "Unknown heading-level command.".to_string())?;
+    let block = event.focused_block.as_ref().ok_or_else(|| "Edit a block before choosing a heading level.".to_string())?;
+    let raw = set_level(&block.raw, level, block.format);
+    if raw == block.raw {
+        return Ok(Vec::new());
+    }
+    Ok(vec![Effect::ReplaceBlockText {
+        block_id: block.id.clone(),
+        expected_raw: block.raw.clone(),
+        raw,
+    }])
+}
+
+tine_plugin_sdk::tine_plugin!(handle);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rewrites_only_the_first_markdown_heading_prefix() {
+        assert_eq!(markdown_heading("## Title\nbody", 4), "#### Title\nbody");
+        assert_eq!(markdown_heading("###### Title", 0), "Title");
+        assert_eq!(markdown_heading("#not a heading", 2), "## #not a heading");
+    }
+
+    #[test]
+    fn upserts_and_removes_org_heading_without_losing_other_properties() {
+        let raw = "Title\n:PROPERTIES:\n:id: abc\n:heading: 2\n:END:";
+        assert_eq!(org_heading(raw, 5), "Title\n:PROPERTIES:\n:id: abc\n:heading: 5\n:END:");
+        assert_eq!(org_heading(raw, 0), "Title\n:PROPERTIES:\n:id: abc\n:END:");
+        assert_eq!(org_heading("Title", 3), "Title\n\n:PROPERTIES:\n:heading: 3\n:END:");
+        assert_eq!(org_heading("Title\n:PROPERTIES:\n:heading: 1\n:END:", 0), "Title");
+    }
+}
