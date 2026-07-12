@@ -26,7 +26,14 @@ fn is_heading_property(line: &str) -> bool {
 
 fn org_heading(raw: &str, level: u8) -> String {
     let mut lines = raw.split('\n').map(str::to_string).collect::<Vec<_>>();
-    let drawer_start = lines.iter().position(|line| line.trim().eq_ignore_ascii_case(":PROPERTIES:"));
+    let drawer_start = if lines.get(1).is_some_and(|line| line.trim().eq_ignore_ascii_case(":PROPERTIES:")) {
+        Some(1)
+    } else if lines.get(1).is_some_and(|line| line.is_empty())
+        && lines.get(2).is_some_and(|line| line.trim().eq_ignore_ascii_case(":PROPERTIES:")) {
+        Some(2)
+    } else {
+        None
+    };
     if let Some(start) = drawer_start {
         if let Some(relative_end) = lines[start + 1..].iter().position(|line| line.trim().eq_ignore_ascii_case(":END:")) {
             let end = start + 1 + relative_end;
@@ -101,5 +108,7 @@ mod tests {
         assert_eq!(org_heading("Title\n:PROPERTIES:\n:heading: 1\n:END:", 0), "Title");
         assert_eq!(org_heading("Title\n\n:PROPERTIES:\n:heading: 1\n:END:\n", 0), "Title\n\n");
         assert_eq!(org_heading("Title\n:PROPERTIES:\n:heading:note: keep\n:heading: 1\n:END:", 0), "Title\n:PROPERTIES:\n:heading:note: keep\n:END:");
+        let literal = "Title\nbody\n:PROPERTIES:\n:heading: 1\n:END:";
+        assert_eq!(org_heading(literal, 0), literal);
     }
 }
